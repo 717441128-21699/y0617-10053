@@ -85,8 +85,11 @@ router.get('/candidates', (req: Request, res: Response): void => {
       params.push(jobId)
     }
     if (status) {
-      sql += ' AND jc.status = ?'
-      params.push(status)
+      const statusList = String(status).split(',').filter(s => s.trim())
+      if (statusList.length > 0) {
+        sql += ` AND jc.status IN (${statusList.map(() => '?').join(',')})`
+        params.push(...statusList)
+      }
     }
     if (minScore) {
       sql += ' AND jc.match_score >= ?'
@@ -147,8 +150,11 @@ router.get('/export', async (req: Request, res: Response): Promise<void> => {
       params.push(jobId)
     }
     if (status) {
-      sql += ' AND jc.status = ?'
-      params.push(status)
+      const statusList = String(status).split(',').filter(s => s.trim())
+      if (statusList.length > 0) {
+        sql += ` AND jc.status IN (${statusList.map(() => '?').join(',')})`
+        params.push(...statusList)
+      }
     }
     if (minScore) {
       sql += ' AND jc.match_score >= ?'

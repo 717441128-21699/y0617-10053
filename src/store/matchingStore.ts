@@ -88,6 +88,8 @@ const useMatchingStore = create<MatchingStore>((set, get) => ({
     set((state) => ({
       filters: { ...state.filters, ...filters },
     }));
+    const state = useMatchingStore.getState();
+    state.fetchCandidates();
   },
 
   exportExcel: async () => {

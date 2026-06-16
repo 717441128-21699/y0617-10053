@@ -7,8 +7,9 @@ export default function Upload() {
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { uploadResume, parsedData, resume, uploading, error } = useResumeStore();
+  const { uploadResume, parsedData, resume, uploading, error, updateResume } = useResumeStore();
   const navigate = useNavigate();
 
   const handleFile = async (file: File) => {
@@ -56,8 +57,20 @@ export default function Upload() {
     if (file) handleFile(file);
   };
 
-  const handleConfirm = () => {
-    navigate('/candidate/resume');
+  const handleConfirm = async () => {
+    if (!resume?.id || !parsedData) return;
+    setSaving(true);
+    try {
+      await updateResume(resume.id, {
+        basicInfo: parsedData.basicInfo,
+        education: parsedData.education,
+        workExperience: parsedData.workExperience,
+        skills: parsedData.skills,
+      });
+      navigate('/candidate/resume');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -189,9 +202,11 @@ export default function Upload() {
           <div className="flex justify-end">
             <button
               onClick={handleConfirm}
-              className="px-8 py-2.5 bg-[#FF6B35] text-white rounded-lg font-medium text-sm hover:bg-[#E85A25] transition-colors"
+              disabled={saving}
+              className="px-8 py-2.5 bg-[#FF6B35] text-white rounded-lg font-medium text-sm hover:bg-[#E85A25] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              确认保存
+              {saving && <Loader2 size={16} className="animate-spin" />}
+              {saving ? '保存中...' : '确认保存'}
             </button>
           </div>
         </div>

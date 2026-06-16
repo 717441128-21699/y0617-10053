@@ -238,7 +238,7 @@ export function seed() {
 
     for (const r of candidateResumes) {
       const resumeId = uuidv4()
-      db.prepare('INSERT INTO resumes (id, user_id, file_path, basic_info, education, work_experience, skills) VALUES (?, ?, ?, ?, ?, ?, ?)').run(resumeId, r.userId, '', r.basicInfo, r.education, r.workExperience, r.skills)
+      db.prepare('INSERT INTO resumes (id, user_id, file_path, basic_info, education, work_experience, skills, confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, 1)').run(resumeId, r.userId, '', r.basicInfo, r.education, r.workExperience, r.skills)
       resumes.push({ id: resumeId, userId: r.userId })
     }
 

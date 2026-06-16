@@ -45,37 +45,49 @@ router.use(authMiddleware, requireRole('candidate'))
 router.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
-      res.status(400).json({ success: false, error: 'No file uploaded' })
+      res.status(400).json({ success: false, error: '请选择要上传的PDF简历文件' })
       return
     }
 
     const pdfParse = (await import('pdf-parse')).default
-    const dataBuffer = fs.readFileSync(req.file.path)
-    const pdfData = await pdfParse(dataBuffer)
-    const text = pdfData.text
+    let text = ''
+    try {
+      const dataBuffer = fs.readFileSync(req.file.path)
+      const pdfData = await pdfParse(dataBuffer)
+      text = pdfData.text
+    } catch (e) {
+      res.status(400).json({ success: false, error: 'PDF文件解析失败，请确保文件未损坏且包含可读的文本内容，尝试重新导出PDF后再次上传' })
+      return
+    }
 
-    const parsed = parseResume(text)
+    if (!text || text.trim().length < 10) {
+      res.status(400).json({ success: false, error: 'PDF内容为空或无法识别文本，请确认文件包含可提取的文字内容（非扫描版图片PDF）' })
+      return
+    }
+
+    const parsed = await parseResume(text)
 
     const basicInfo = {
-      name: parsed.basicInfo.name,
-      phone: parsed.basicInfo.phone,
-      email: parsed.basicInfo.email,
+      name: parsed.basicInfo.name || '',
+      phone: parsed.basicInfo.phone || '',
+      email: parsed.basicInfo.email || '',
       location: parsed.basicInfo.summary || '',
     }
     const education = parsed.education.map((e: any) => ({
-      school: e.school,
-      degree: e.degree,
-      major: e.major,
+      school: e.school || '',
+      degree: e.degree || '',
+      major: e.major || '',
       startDate: e.year ? e.year.split('-')[0]?.trim() || e.year : '',
       endDate: e.year ? e.year.split('-')[1]?.trim() || e.year : '',
     }))
     const workExperience = parsed.workExperience.map((w: any) => ({
-      company: w.company,
-      position: w.title,
+      company: w.company || '',
+      position: w.title || '',
       startDate: w.duration ? w.duration.split('-')[0]?.trim() || w.duration : '',
       endDate: w.duration ? w.duration.split('-')[1]?.trim() || w.duration : '',
-      description: w.description,
+      description: w.description || '',
     }))
+    const skills = parsed.skills && parsed.skills.length > 0 ? parsed.skills : []
 
     const id = uuidv4()
     const userId = req.user!.id
@@ -89,7 +101,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       JSON.stringify(basicInfo),
       JSON.stringify(education),
       JSON.stringify(workExperience),
-      JSON.stringify(parsed.skills),
+      JSON.stringify(skills),
     )
 
     res.status(201).json({
@@ -99,12 +111,24 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         basicInfo,
         education,
         workExperience,
-        skills: parsed.skills,
+        skills,
         confirmed: 0,
       },
     })
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to parse resume' })
+  } catch (error: any) {
+    if (error?.name === 'ResumeParseError') {
+      res.status(400).json({ success: false, error: error.message })
+      return
+    }
+    if (error?.message?.includes('Only PDF files')) {
+      res.status(400).json({ success: false, error: '仅支持PDF格式文件，请上传PDF简历' })
+      return
+    }
+    if (error?.message?.includes('File too large')) {
+      res.status(400).json({ success: false, error: '文件大小超过限制（最大10MB），请压缩后重新上传' })
+      return
+    }
+    res.status(500).json({ success: false, error: '简历处理失败，请稍后重试或联系管理员' })
   }
 })
 

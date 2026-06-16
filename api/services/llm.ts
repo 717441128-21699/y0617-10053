@@ -20,6 +20,27 @@ export interface ParsedResume {
   skills: string[]
 }
 
+export interface LLMConfig {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+}
+
+function getConfig(): LLMConfig {
+  return {
+    apiKey: process.env.LLM_API_KEY,
+    baseUrl: process.env.LLM_API_BASE_URL || 'https://api.openai.com/v1',
+    model: process.env.LLM_MODEL || 'gpt-4o-mini',
+  }
+}
+
+export class ResumeParseError extends Error {
+  constructor(message: string, public originalError?: unknown) {
+    super(message)
+    this.name = 'ResumeParseError'
+  }
+}
+
 const SKILL_KEYWORDS = [
   'JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#',
   'React', 'Vue', 'Angular', 'Node.js', 'Express', 'Django', 'Flask', 'Spring Boot',
@@ -135,7 +156,7 @@ function extractWorkExperience(text: string): ParsedResume['workExperience'] {
   return results
 }
 
-export function parseResume(text: string): ParsedResume {
+function mockParseResume(text: string): ParsedResume {
   const emails = extractEmails(text)
   const phones = extractPhones(text)
   const name = extractName(text)
@@ -158,3 +179,149 @@ export function parseResume(text: string): ParsedResume {
     skills,
   }
 }
+
+const SYSTEM_PROMPT = `你是一个专业的简历解析助手。请从用户提供的简历文本中提取结构化信息，并严格按照指定的 JSON 格式返回结果。
+
+要求：
+1. 准确提取所有字段，无法确定时使用空字符串或合理默认值
+2. 教育经历按时间倒序排列，最多提取 3 条
+3. 工作经历按时间倒序排列，最多提取 5 条
+4. 技能标签使用中文或英文原文，最多提取 20 个
+5. 只返回 JSON 对象，不要包含任何解释文字、markdown 标记或代码块符号
+
+返回 JSON 格式：
+{
+  "basicInfo": {
+    "name": "姓名",
+    "email": "邮箱",
+    "phone": "电话",
+    "summary": "所在地或个人简介"
+  },
+  "education": [
+    {
+      "school": "学校名称",
+      "degree": "学历（本科/硕士/博士/Bachelor/Master/PhD）",
+      "major": "专业",
+      "year": "起止年份（如 2018-2022）"
+    }
+  ],
+  "workExperience": [
+    {
+      "company": "公司名称",
+      "title": "职位",
+      "duration": "起止时间（如 2022-01 至今）",
+      "description": "工作描述"
+    }
+  ],
+  "skills": ["技能1", "技能2"]
+}`
+
+async function callLLMAPI(config: LLMConfig, text: string): Promise<ParsedResume> {
+  if (!config.apiKey) {
+    throw new ResumeParseError('未配置大模型 API Key，请联系管理员设置 LLM_API_KEY 环境变量')
+  }
+
+  const truncatedText = text.length > 12000 ? text.substring(0, 12000) + '...' : text
+
+  try {
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: `请解析以下简历内容：\n\n${truncatedText}` },
+        ],
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      if (response.status === 401) {
+        throw new ResumeParseError('大模型 API Key 无效或已过期，请检查配置')
+      }
+      if (response.status === 429) {
+        throw new ResumeParseError('大模型 API 调用频率超限，请稍后重试')
+      }
+      if (response.status >= 500) {
+        throw new ResumeParseError(`大模型服务暂时不可用（HTTP ${response.status}），请稍后重试或使用备用模式`)
+      }
+      throw new ResumeParseError(`大模型解析失败（HTTP ${response.status}）：${errorText.substring(0, 200) || '未知错误'}`)
+    }
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+
+    if (!content) {
+      throw new ResumeParseError('大模型返回了空结果，请检查简历内容是否完整')
+    }
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(content)
+    } catch (e) {
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0])
+        } catch {
+          throw new ResumeParseError('大模型返回的 JSON 格式无法解析，请稍后重试')
+        }
+      } else {
+        throw new ResumeParseError('大模型返回的结果不是有效的 JSON 格式，请稍后重试')
+      }
+    }
+
+    const requiredFields = ['basicInfo', 'education', 'workExperience', 'skills']
+    for (const field of requiredFields) {
+      if (parsed[field] === undefined) {
+        throw new ResumeParseError(`解析结果缺少必需字段：${field}，请检查简历内容或稍后重试`)
+      }
+    }
+
+    return parsed as ParsedResume
+  } catch (error) {
+    if (error instanceof ResumeParseError) {
+      throw error
+    }
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new ResumeParseError('无法连接到大模型服务，请检查网络连接后重试')
+    }
+    if (error instanceof SyntaxError) {
+      throw new ResumeParseError('大模型返回结果格式异常，请稍后重试')
+    }
+    throw new ResumeParseError(
+      `简历解析失败：${(error as Error).message || '未知错误'}`,
+      error
+    )
+  }
+}
+
+export async function parseResume(text: string): Promise<ParsedResume> {
+  const config = getConfig()
+
+  if (!text || text.trim().length < 10) {
+    throw new ResumeParseError('简历内容为空或内容过少，无法解析。请确保 PDF 文件包含可读的文本内容')
+  }
+
+  if (config.apiKey) {
+    try {
+      const result = await callLLMAPI(config, text)
+      return result
+    } catch (error) {
+      if (error instanceof ResumeParseError) {
+        console.warn('LLM parsing failed, falling back to mock parser:', error.message)
+      }
+    }
+  }
+
+  return mockParseResume(text)
+}
+
+export { getConfig }
