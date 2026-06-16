@@ -84,6 +84,7 @@ class DbWrapper {
         match_score REAL NOT NULL DEFAULT 0,
         match_points TEXT NOT NULL DEFAULT '[]',
         gap_points TEXT NOT NULL DEFAULT '[]',
+        score_breakdown TEXT DEFAULT '{}',
         status TEXT CHECK(status IN ('pending', 'screening', 'interview', 'offer', 'rejected')) DEFAULT 'pending',
         note TEXT DEFAULT '',
         created_at TEXT DEFAULT (datetime('now')),
@@ -91,6 +92,12 @@ class DbWrapper {
         UNIQUE(job_id, candidate_id)
       )
     `)
+
+    const cols = this.prepare("PRAGMA table_info(job_candidates)").all()
+    const hasScoreBreakdown = cols.some((c: any) => c.name === 'score_breakdown')
+    if (!hasScoreBreakdown) {
+      this.db.run("ALTER TABLE job_candidates ADD COLUMN score_breakdown TEXT DEFAULT '{}'")
+    }
 
     this.db.run('CREATE INDEX IF NOT EXISTS idx_resumes_user_id ON resumes(user_id)')
     this.db.run('CREATE INDEX IF NOT EXISTS idx_jobs_hr_id ON jobs(hr_id)')

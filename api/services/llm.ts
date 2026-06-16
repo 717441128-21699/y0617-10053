@@ -303,22 +303,20 @@ async function callLLMAPI(config: LLMConfig, text: string): Promise<ParsedResume
   }
 }
 
-export async function parseResume(text: string): Promise<ParsedResume> {
+export async function parseResume(text: string, forceMock: boolean = false): Promise<ParsedResume> {
   const config = getConfig()
 
   if (!text || text.trim().length < 10) {
     throw new ResumeParseError('简历内容为空或内容过少，无法解析。请确保 PDF 文件包含可读的文本内容')
   }
 
+  if (forceMock) {
+    return mockParseResume(text)
+  }
+
   if (config.apiKey) {
-    try {
-      const result = await callLLMAPI(config, text)
-      return result
-    } catch (error) {
-      if (error instanceof ResumeParseError) {
-        console.warn('LLM parsing failed, falling back to mock parser:', error.message)
-      }
-    }
+    const result = await callLLMAPI(config, text)
+    return result
   }
 
   return mockParseResume(text)

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Zap, ChevronDown, ChevronUp, Save, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Zap, ChevronDown, ChevronUp, Save, MessageSquare, BarChart3 } from 'lucide-react';
 import useJobStore from '@/store/jobStore';
 import useMatchingStore from '@/store/matchingStore';
+import type { ScoreBreakdown } from '@/lib/api';
 
 function ScoreCircle({ score }: { score: number }) {
   const radius = 28;
@@ -34,6 +35,44 @@ function ScoreCircle({ score }: { score: number }) {
   );
 }
 
+function ScoreBreakdownView({ breakdown, matchScore }: { breakdown: ScoreBreakdown; matchScore: number }) {
+  const items = [
+    { label: '岗位要求命中', score: breakdown.requirementScore, weight: breakdown.requirementWeight, color: '#3B82F6' },
+    { label: 'JD 语义相似', score: breakdown.contentSimScore, weight: breakdown.contentSimWeight, color: '#8B5CF6' },
+    { label: '工作经历相关', score: breakdown.experienceScore, weight: breakdown.experienceWeight, color: '#F59E0B' },
+    { label: '教育背景匹配', score: breakdown.educationScore, weight: breakdown.educationWeight, color: '#10B981' },
+    { label: '额外加分技能', score: breakdown.skillsBonus, weight: breakdown.skillsBonusWeight, color: '#EC4899' },
+  ];
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">分数构成详情</p>
+        <p className="text-xs text-gray-400">总分：<span className="font-bold text-[#1E3A5F]">{matchScore}</span></p>
+      </div>
+      <div className="space-y-2.5">
+        {items.map((item) => {
+          const pct = item.weight > 0 ? (item.score / item.weight) * 100 : 0;
+          return (
+            <div key={item.label}>
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-xs text-gray-600">{item.label}</span>
+                <span className="text-xs font-medium text-gray-800">{item.score.toFixed(1)} / {item.weight}</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: item.color }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '待定', color: 'bg-gray-100 text-gray-600' },
   screening: { label: '初筛', color: 'bg-blue-100 text-blue-700' },
@@ -48,6 +87,7 @@ export default function JobDetail() {
   const { currentJob, fetchJobDetail, calculateMatches, loading } = useJobStore();
   const { updateStatus, updateNote } = useMatchingStore();
   const [expandedNote, setExpandedNote] = useState<string | null>(null);
+  const [expandedScore, setExpandedScore] = useState<string | null>(null);
   const [noteText, setNoteText] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -198,25 +238,52 @@ export default function JobDetail() {
                       </div>
 
                       <div>
-                        <button
-                          onClick={() => {
-                            if (expandedNote === candidate.candidateId) {
-                              setExpandedNote(null);
-                            } else {
-                              setExpandedNote(candidate.candidateId);
-                              setNoteText({ ...noteText, [candidate.candidateId]: candidate.note });
-                            }
-                          }}
-                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors"
-                        >
-                          <MessageSquare size={14} />
-                          备注
-                          {expandedNote === candidate.candidateId ? (
-                            <ChevronUp size={14} />
-                          ) : (
-                            <ChevronDown size={14} />
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              if (expandedNote === candidate.candidateId) {
+                                setExpandedNote(null);
+                              } else {
+                                setExpandedNote(candidate.candidateId);
+                                setNoteText({ ...noteText, [candidate.candidateId]: candidate.note });
+                              }
+                            }}
+                            className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors"
+                          >
+                            <MessageSquare size={14} />
+                            备注
+                            {expandedNote === candidate.candidateId ? (
+                              <ChevronUp size={14} />
+                            ) : (
+                              <ChevronDown size={14} />
+                            )}
+                          </button>
+                          {candidate.scoreBreakdown && (
+                            <button
+                              onClick={() => {
+                                setExpandedScore(
+                                  expandedScore === candidate.candidateId ? null : candidate.candidateId
+                                );
+                              }}
+                              className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors"
+                            >
+                              <BarChart3 size={14} />
+                              分数构成
+                              {expandedScore === candidate.candidateId ? (
+                                <ChevronUp size={14} />
+                              ) : (
+                                <ChevronDown size={14} />
+                              )}
+                            </button>
                           )}
-                        </button>
+                        </div>
+
+                        {expandedScore === candidate.candidateId && candidate.scoreBreakdown && (
+                          <ScoreBreakdownView
+                            breakdown={candidate.scoreBreakdown}
+                            matchScore={candidate.matchScore}
+                          />
+                        )}
 
                         {expandedNote === candidate.candidateId && (
                           <div className="mt-2">

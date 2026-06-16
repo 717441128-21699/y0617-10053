@@ -4,6 +4,12 @@ function getToken(): string | null {
   return localStorage.getItem('token');
 }
 
+export interface APIError {
+  message: string;
+  llmFailed?: boolean;
+  canUseMock?: boolean;
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -28,7 +34,12 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: '请求失败' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const apiError: APIError = {
+      message: error.error || `HTTP ${response.status}`,
+      llmFailed: error.llmFailed,
+      canUseMock: error.canUseMock,
+    };
+    throw apiError;
   }
 
   if (response.headers.get('Content-Type')?.includes('spreadsheet') ||
@@ -92,6 +103,19 @@ export interface Job {
   updatedAt: string;
 }
 
+export interface ScoreBreakdown {
+  requirementScore: number;
+  requirementWeight: number;
+  contentSimScore: number;
+  contentSimWeight: number;
+  experienceScore: number;
+  experienceWeight: number;
+  educationScore: number;
+  educationWeight: number;
+  skillsBonus: number;
+  skillsBonusWeight: number;
+}
+
 export interface MatchedCandidate {
   candidateId: string;
   resumeId: string;
@@ -102,6 +126,7 @@ export interface MatchedCandidate {
   matchScore: number;
   matchPoints: string[];
   gapPoints: string[];
+  scoreBreakdown?: ScoreBreakdown;
   status: 'pending' | 'screening' | 'interview' | 'offer' | 'rejected';
   note: string;
 }
@@ -128,10 +153,11 @@ export const authApi = {
 };
 
 export const resumeApi = {
-  upload: (file: File) => {
+  upload: (file: File, useMock = false) => {
     const formData = new FormData();
     formData.append('file', file);
-    return request<any>('/resume/upload', {
+    const query = useMock ? '?useMock=true' : '';
+    return request<any>('/resume/upload' + query, {
       method: 'POST',
       body: formData,
     });

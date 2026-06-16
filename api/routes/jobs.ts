@@ -119,6 +119,7 @@ router.get('/:id', authMiddleware, requireRole('hr'), (req: Request, res: Respon
           matchScore: c.match_score,
           matchPoints: JSON.parse(c.match_points),
           gapPoints: JSON.parse(c.gap_points),
+          scoreBreakdown: c.score_breakdown ? JSON.parse(c.score_breakdown) : undefined,
           status: c.status,
           note: c.note,
           createdAt: c.created_at,
@@ -240,20 +241,30 @@ router.post('/:id/calculate', authMiddleware, requireRole('hr'), (req: Request, 
     }
 
     const resumes = db.prepare(`
-      SELECT r.*, u.name as candidate_name
-      FROM resumes r
+      SELECT r.*, u.name as candidate_name, u.email as candidate_email
+      FROM (
+        SELECT r1.*
+        FROM resumes r1
+        WHERE r1.confirmed = 1
+        AND r1.created_at = (
+          SELECT MAX(created_at)
+          FROM resumes
+          WHERE user_id = r1.user_id AND confirmed = 1
+        )
+      ) r
       JOIN users u ON r.user_id = u.id
       WHERE u.role = 'candidate'
-        AND r.confirmed = 1
     `).all() as any[]
 
     const upsertCandidate = db.prepare(`
-      INSERT INTO job_candidates (id, job_id, candidate_id, resume_id, match_score, match_points, gap_points, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+      INSERT INTO job_candidates (id, job_id, candidate_id, resume_id, match_score, match_points, gap_points, score_breakdown, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
       ON CONFLICT(job_id, candidate_id) DO UPDATE SET
+        resume_id = excluded.resume_id,
         match_score = excluded.match_score,
         match_points = excluded.match_points,
         gap_points = excluded.gap_points,
+        score_breakdown = excluded.score_breakdown,
         updated_at = datetime('now')
     `)
 
@@ -289,15 +300,18 @@ router.post('/:id/calculate', authMiddleware, requireRole('hr'), (req: Request, 
           match.score,
           JSON.stringify(match.matchPoints),
           JSON.stringify(match.gapPoints),
+          JSON.stringify(match.scoreBreakdown),
         )
 
         results.push({
           candidateId: resume.user_id,
           candidateName: resume.candidate_name,
+          candidateEmail: resume.candidate_email,
           resumeId: resume.id,
           matchScore: match.score,
           matchPoints: match.matchPoints,
           gapPoints: match.gapPoints,
+          scoreBreakdown: match.scoreBreakdown,
         })
       }
     })

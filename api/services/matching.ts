@@ -14,6 +14,18 @@ interface MatchResult {
   score: number
   matchPoints: string[]
   gapPoints: string[]
+  scoreBreakdown: {
+    requirementScore: number
+    requirementWeight: number
+    contentSimScore: number
+    contentSimWeight: number
+    experienceScore: number
+    experienceWeight: number
+    educationScore: number
+    educationWeight: number
+    skillsBonus: number
+    skillsBonusWeight: number
+  }
 }
 
 const SYNONYM_MAP: Record<string, string[]> = {
@@ -461,5 +473,17 @@ export function calculateMatch(job: JobInput, resume: ResumeInput): MatchResult 
     score: finalScore,
     matchPoints: uniqueMatchPoints.slice(0, 8),
     gapPoints: uniqueGapPoints.slice(0, 5),
+    scoreBreakdown: {
+      requirementScore: Math.round(baseReqScore * 10) / 10,
+      requirementWeight: 65,
+      contentSimScore: Math.round(contentSimScore * 10) / 10,
+      contentSimWeight: 18,
+      experienceScore: Math.round(experienceScore * 10) / 10,
+      experienceWeight: 10,
+      educationScore: Math.round(educationScore * 10) / 10,
+      educationWeight: 4,
+      skillsBonus: Math.round(skillsBonus * 10) / 10,
+      skillsBonusWeight: 3,
+    },
   }
 }

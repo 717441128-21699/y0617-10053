@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { resumeApi, type Resume, type ParsedResume } from '@/lib/api';
+import { resumeApi, type Resume, type ParsedResume, type APIError } from '@/lib/api';
 
 interface ResumeState {
   resume: Resume | null;
@@ -7,29 +7,37 @@ interface ResumeState {
   loading: boolean;
   uploading: boolean;
   error: string | null;
+  llmFailed: boolean;
+  canUseMock: boolean;
+  pendingFile: File | null;
 }
 
 interface ResumeActions {
-  uploadResume: (file: File) => Promise<void>;
+  uploadResume: (file: File, useMock?: boolean) => Promise<void>;
+  retryWithMock: () => Promise<void>;
   fetchResume: () => Promise<void>;
   updateResume: (id: string, data: Partial<Resume>) => Promise<void>;
   setParsedData: (data: ParsedResume | null) => void;
   clearError: () => void;
+  clearPending: () => void;
 }
 
 type ResumeStore = ResumeState & ResumeActions;
 
-const useResumeStore = create<ResumeStore>((set) => ({
+const useResumeStore = create<ResumeStore>((set, get) => ({
   resume: null,
   parsedData: null,
   loading: false,
   uploading: false,
   error: null,
+  llmFailed: false,
+  canUseMock: false,
+  pendingFile: null,
 
-  uploadResume: async (file: File) => {
-    set({ uploading: true, error: null });
+  uploadResume: async (file: File, useMock = false) => {
+    set({ uploading: true, error: null, llmFailed: false, canUseMock: false, pendingFile: file });
     try {
-      const data = await resumeApi.upload(file);
+      const data = await resumeApi.upload(file, useMock);
       const parsed: ParsedResume = {
         basicInfo: data.basicInfo,
         education: data.education,
@@ -44,11 +52,23 @@ const useResumeStore = create<ResumeStore>((set) => ({
         createdAt: '',
         updatedAt: '',
       };
-      set({ parsedData: parsed, resume, uploading: false });
+      set({ parsedData: parsed, resume, uploading: false, pendingFile: null });
     } catch (err) {
-      set({ uploading: false, error: (err as Error).message });
+      const apiErr = err as APIError;
+      set({
+        uploading: false,
+        error: apiErr.message,
+        llmFailed: !!apiErr.llmFailed,
+        canUseMock: !!apiErr.canUseMock,
+      });
       throw err;
     }
+  },
+
+  retryWithMock: async () => {
+    const { pendingFile } = get();
+    if (!pendingFile) return;
+    await get().uploadResume(pendingFile, true);
   },
 
   fetchResume: async () => {
@@ -78,7 +98,9 @@ const useResumeStore = create<ResumeStore>((set) => ({
 
   setParsedData: (data: ParsedResume | null) => set({ parsedData: data }),
 
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, llmFailed: false, canUseMock: false }),
+
+  clearPending: () => set({ pendingFile: null }),
 }));
 
 export default useResumeStore;

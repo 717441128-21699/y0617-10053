@@ -6,7 +6,7 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../db.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
-import { parseResume } from '../services/llm.js'
+import { parseResume, getConfig, type ParsedResume } from '../services/llm.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -49,6 +49,8 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return
     }
 
+    const useMock = req.query.useMock === 'true'
+
     const pdfParse = (await import('pdf-parse')).default
     let text = ''
     try {
@@ -65,7 +67,24 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return
     }
 
-    const parsed = await parseResume(text)
+    let parsed: ParsedResume
+    let isMockResult = false
+    try {
+      parsed = await parseResume(text, useMock)
+      isMockResult = useMock
+    } catch (error: any) {
+      if (error?.name === 'ResumeParseError') {
+        const config = getConfig()
+        res.status(400).json({
+          success: false,
+          error: error.message,
+          llmFailed: !!config.apiKey && !useMock,
+          canUseMock: !!config.apiKey,
+        })
+        return
+      }
+      throw error
+    }
 
     const basicInfo = {
       name: parsed.basicInfo.name || '',
@@ -113,6 +132,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         workExperience,
         skills,
         confirmed: 0,
+        isMockResult,
       },
     })
   } catch (error: any) {

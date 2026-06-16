@@ -118,6 +118,7 @@ router.get('/candidates', (req: Request, res: Response): void => {
         matchScore: c.match_score,
         matchPoints: JSON.parse(c.match_points),
         gapPoints: JSON.parse(c.gap_points),
+        scoreBreakdown: c.score_breakdown ? JSON.parse(c.score_breakdown) : undefined,
         status: c.status,
         note: c.note,
         createdAt: c.created_at,
